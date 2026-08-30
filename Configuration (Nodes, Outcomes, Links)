@@ -1,0 +1,94 @@
+import json, os
+
+# =========================================================================
+# CONFIGURATION - ADD NEW NODES HERE
+# =========================================================================
+# Each decision/condition node:
+#   id      -> unique string id
+#   label   -> display text
+#   parent  -> id of parent node (None only for the single ROOT)
+#   branch  -> "T" / "F" / None (None = single-leaf node, only ONE outgoing path, no T/F split)
+#   indent  -> 0,1,2... controls horizontal "waterfall" stacking offset (a=0, b=1, c=2 style)
+NODES = [
+    {"id":"root", "label":"Strategy 01: 0025",              "parent":None,  "branch":None, "indent":0},
+
+    # ---- Root-level status splits (single-leaf: branch=None) ----
+    {"id":"r1",  "label":"C: Ext Status Cd: B",              "parent":"root","branch":None,"indent":0},
+    {"id":"r2",  "label":"C: Ext Status Cd: L",              "parent":"root","branch":None,"indent":0},
+    {"id":"r3",  "label":"C: Ext Status Cd: U",              "parent":"root","branch":None,"indent":0},
+    {"id":"r4",  "label":"C: Ext Status Cd: Z",              "parent":"root","branch":None,"indent":0},
+    {"id":"r5",  "label":"C: Ext Status Cd: Others",         "parent":"root","branch":None,"indent":0},
+
+    # ---- Waterfall cascade under "Others" (a/b/c indentation demo) ----
+    {"id":"n1",  "label":"B: External Status (C,E,F,I)",      "parent":"r5", "branch":"T", "indent":0},
+    {"id":"n2",  "label":"B: Foreign Country = True",         "parent":"n1", "branch":"T", "indent":1},
+    {"id":"n3",  "label":"B: Foreign Country = False",        "parent":"n1", "branch":"F", "indent":1},
+    {"id":"n4",  "label":"B: Status Reason (2,67,70,81,86,89)","parent":"n3","branch":"T", "indent":2},
+    {"id":"n5",  "label":"B: Status Reason - False",          "parent":"n3", "branch":"F", "indent":2},
+
+    {"id":"n6",  "label":"B: Status Reason (52,73,74)=T",     "parent":"n5", "branch":"T", "indent":3},
+    {"id":"n30", "label":"B: Status Reason (52,73,74)=F",     "parent":"n5", "branch":"F", "indent":3},
+
+    {"id":"n7",  "label":"B: At cycle B1-B2 = T",             "parent":"n6", "branch":"T", "indent":4},
+    {"id":"n8",  "label":"B: At cycle B1-B2 = F",             "parent":"n6", "branch":"F", "indent":4},
+
+    {"id":"n9",  "label":"B: B1-B2 not 30/60dpd = T",         "parent":"n7", "branch":"T", "indent":5},
+    {"id":"n10", "label":"B: B1-B2 not 30/60dpd = F",         "parent":"n7", "branch":"F", "indent":5},
+
+    {"id":"n15", "label":"B: OFAC F76/F82 = T",               "parent":"n30","branch":"T","indent":4},
+    {"id":"n16", "label":"B: OFAC F76/F82 = F",               "parent":"n30","branch":"F","indent":4},
+
+    # ---- Example single-leaf node (branch=None -> only ONE outgoing path) ----
+    {"id":"n50", "label":"B: Disaster Relief Check",          "parent":"n16","branch":None,"indent":5},
+
+    # <<< ADD MORE DECISION / CONDITION NODES BELOW THIS LINE >>>
+    # {"id":"nXX", "label":"Your condition text", "parent":"parent_id", "branch":"T/F/None", "indent":N},
+]
+
+# =========================================================================
+# THE 15 FIXED OUTCOMES (always rendered at the rightmost column)
+# =========================================================================
+OUTCOME_CODES = [
+    "ABCD_EF_GH  0002",
+    "ABCD_EF_GH  0004",
+    "ABCD_EF_GH  0021",
+    "ABCD_EF_GH  0031",
+    "ABCD_EF_GH  0041",
+    "ABCD_EF_GH  0043",
+    "ABCD_EF_GH  0502",   # <-- confirm: 0502 or 0052?
+    "ABCD_EF_GH  0423",
+    "ABCD_EF_GH  0428",
+    "ABCD_EF_GH  0429",
+    "ABCD_EF_GH  0501",
+    "ABCD_EF_GH  0505",
+    "ABCD_EF_GH  0506",
+    "ABCD_EF_GH  9998",
+    "ABCD_EF_GH  9999",
+]
+def outcome_id(code): return "OUT_" + code.replace(" ", "_")
+
+# =========================================================================
+# EDGES: which decision node routes to which OUTCOME (+ optional mini-outcomes)
+# =========================================================================
+# Each entry:
+#   from    -> decision node id that terminates here
+#   outcome -> one of OUTCOME_CODES (exact string match)
+#   minis   -> list of small sub-outcome labels attached just after the outcome node (can be [])
+OUTCOME_LINKS = [
+    {"from":"r1",  "outcome":"ABCD_EF_GH  0002", "minis":[]},
+    {"from":"r2",  "outcome":"ABCD_EF_GH  0002", "minis":["cc 981"]},
+    {"from":"r3",  "outcome":"ABCD_EF_GH  0002", "minis":["cc 981"]},
+    {"from":"r4",  "outcome":"ABCD_EF_GH  0002", "minis":["cc 981"]},
+    {"from":"n2",  "outcome":"ABCD_EF_GH  0002", "minis":[]},
+    {"from":"n4",  "outcome":"ABCD_EF_GH  0031", "minis":["cc 984"]},
+    {"from":"n9",  "outcome":"ABCD_EF_GH  0041", "minis":["mens 1","cc 984"]},
+    {"from":"n10", "outcome":"ABCD_EF_GH  0031", "minis":[]},
+    {"from":"n15", "outcome":"ABCD_EF_GH  0002", "minis":[]},
+    {"from":"n16", "outcome":"ABCD_EF_GH  9999", "minis":[]},
+    {"from":"n50", "outcome":"ABCD_EF_GH  0021", "minis":["mens 1"]},
+
+    # <<< ADD MORE OUTCOME LINKS BELOW THIS LINE >>>
+    # {"from":"decision_node_id", "outcome":"ABCD_EF_GH  XXXX", "minis":["sub-outcome label", ...]},
+]
+
+print("Config loaded:", len(NODES), "decision nodes,", len(OUTCOME_CODES), "outcomes,", len(OUTCOME_LINKS), "links")

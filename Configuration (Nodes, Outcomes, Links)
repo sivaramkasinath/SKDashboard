@@ -10,33 +10,33 @@ import json, os
 #   branch  -> "T" / "F" / None (None = single-leaf node, only ONE outgoing path, no T/F split)
 #   indent  -> 0,1,2... controls horizontal "waterfall" stacking offset (a=0, b=1, c=2 style)
 NODES = [
-    {"id":"root", "label":"Strategy 01: 0025",              "parent":None,  "branch":None, "indent":0},
+    {"id":"root", "label":"STG",              "parent":None,  "branch":None, "indent":0},
 
     # ---- Root-level status splits (single-leaf: branch=None) ----
-    {"id":"r1",  "label":"C: Ext Status Cd: B",              "parent":"root","branch":None,"indent":0},
-    {"id":"r2",  "label":"C: Ext Status Cd: L",              "parent":"root","branch":None,"indent":0},
-    {"id":"r3",  "label":"C: Ext Status Cd: U",              "parent":"root","branch":None,"indent":0},
-    {"id":"r4",  "label":"C: Ext Status Cd: Z",              "parent":"root","branch":None,"indent":0},
-    {"id":"r5",  "label":"C: Ext Status Cd: Others",         "parent":"root","branch":None,"indent":0},
+    {"id":"r1",  "label":"C: RedLine: Bombay",              "parent":"root","branch":None,"indent":0},
+    {"id":"r2",  "label":"C: RedLine: Lucknow",              "parent":"root","branch":None,"indent":0},
+    {"id":"r3",  "label":"C: RedLine: UP",              "parent":"root","branch":None,"indent":0},
+    {"id":"r4",  "label":"C: RedLine: Kanyakumari",              "parent":"root","branch":None,"indent":0},
+    {"id":"r5",  "label":"C: RedLine: Others",         "parent":"root","branch":None,"indent":0},
 
     # ---- Waterfall cascade under "Others" (a/b/c indentation demo) ----
-    {"id":"n1",  "label":"B: External Status (C,E,F,I)",      "parent":"r5", "branch":"T", "indent":0},
-    {"id":"n2",  "label":"B: Foreign Country = True",         "parent":"n1", "branch":"T", "indent":1},
-    {"id":"n3",  "label":"B: Foreign Country = False",        "parent":"n1", "branch":"F", "indent":1},
-    {"id":"n4",  "label":"B: Status Reason (2,67,70,81,86,89)","parent":"n3","branch":"T", "indent":2},
-    {"id":"n5",  "label":"B: Status Reason - False",          "parent":"n3", "branch":"F", "indent":2},
+    {"id":"n1",  "label":"B: Blueline (A,B,C,D)",      "parent":"r5", "branch":"T", "indent":0},
+    {"id":"n2",  "label":"B: Status = True",         "parent":"n1", "branch":"T", "indent":1},
+    {"id":"n3",  "label":"B: Status = False",        "parent":"n1", "branch":"F", "indent":1},
+    {"id":"n4",  "label":"B: SR (12,267,270,381,386,389)","parent":"n3","branch":"T", "indent":2},
+    {"id":"n5",  "label":"B: SR - False",          "parent":"n3", "branch":"F", "indent":2},
 
-    {"id":"n6",  "label":"B: Status Reason (52,73,74)=T",     "parent":"n5", "branch":"T", "indent":3},
-    {"id":"n30", "label":"B: Status Reason (52,73,74)=F",     "parent":"n5", "branch":"F", "indent":3},
+    {"id":"n6",  "label":"B: SR (52,73,74)=T",     "parent":"n5", "branch":"T", "indent":3},
+    {"id":"n30", "label":"B: SR (52,73,74)=F",     "parent":"n5", "branch":"F", "indent":3},
 
-    {"id":"n7",  "label":"B: At cycle B1-B2 = T",             "parent":"n6", "branch":"T", "indent":4},
-    {"id":"n8",  "label":"B: At cycle B1-B2 = F",             "parent":"n6", "branch":"F", "indent":4},
+    {"id":"n7",  "label":"B: ACB12 = T",             "parent":"n6", "branch":"T", "indent":4},
+    {"id":"n8",  "label":"B: ACB12 = F",             "parent":"n6", "branch":"F", "indent":4},
 
-    {"id":"n9",  "label":"B: B1-B2 not 30/60dpd = T",         "parent":"n7", "branch":"T", "indent":5},
-    {"id":"n10", "label":"B: B1-B2 not 30/60dpd = F",         "parent":"n7", "branch":"F", "indent":5},
+    {"id":"n9",  "label":"B: B12N3/6 = T",         "parent":"n7", "branch":"T", "indent":5},
+    {"id":"n10", "label":"B: B12N3/6 = F",         "parent":"n7", "branch":"F", "indent":5},
 
-    {"id":"n15", "label":"B: OFAC F76/F82 = T",               "parent":"n30","branch":"T","indent":4},
-    {"id":"n16", "label":"B: OFAC F76/F82 = F",               "parent":"n30","branch":"F","indent":4},
+    {"id":"n15", "label":"B: OF672 = T",               "parent":"n30","branch":"T","indent":4},
+    {"id":"n16", "label":"B: OF672 = F",               "parent":"n30","branch":"F","indent":4},
 
     # ---- Example single-leaf node (branch=None -> only ONE outgoing path) ----
     {"id":"n50", "label":"B: Disaster Relief Check",          "parent":"n16","branch":None,"indent":5},

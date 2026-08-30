@@ -1,0 +1,153 @@
+import networkx as nx
+import plotly.graph_objects as go
+
+# 1. Map PowerCurve Waterfall Tree Data Structure
+# Structure: (Depth Layer, Condition/Name, Leaf Node ID, Outcome Code)
+powercurve_nodes = [
+    # Initial status split
+    (0, "C: RedLine: Bombay", "128", "ABCD_EF_GH 0002"),
+    (0, "C: RedLine: Lucknow", "129", "ABCD_EF_GH 0002"),
+    (0, "C: RedLine: UP", "130", "ABCD_EF_GH 0002"),
+    (0, "C: RedLine: Kanyakumari", "131", "ABCD_EF_GH 0002"),
+    # Waterfall sequence under "Others"
+    (1, "Blueline (A,B,C,D) = True", None, None),
+    (2, "Status = True", "150", "ABCD_EF_GH 0002"),
+    (2, "Status = False", None, None),
+    (3, "SR (12,267,270,381,388,389) = True", "134", "ABCD_EF_GH 0031"),
+    (3, "SR (12,267,270,381,388,389) = False", None, None),
+    (4, "SR (152,273,374) = True", None, None),
+    (5, "ACB12 = True", "222", "ABCD_EF_GH 0041"),
+    (5, "ACB12 = False", None, None),
+    (6, "B12N3/6 = True", "223", "ABCD_EF_GH 0031"),
+    (6, "B12N3/6 = False", None, None),
+    (7, "ACB36 = True", "224", "ABCD_EF_GH 0043"),
+    (7, "ACB36 = False", None, None),
+    (8, "B36N9-18Dd = True", "225", "ABCD_EF_GH 0031"),
+    (8, "B36N9-18Dd = False", "226", "ABCD_EF_GH 9999"),
+    (4, "SR (52,73,74) = False", None, None),
+    (5, "CFAC = ext st F & reason 76,82 = True", "141", "ABCD_EF_GH 0002"),
+]
+
+# 2. Build Directed Waterfall Network Graph
+G = nx.DiGraph()
+pos = {}
+
+# Separate layers for visual routing
+# Layer 0: Root/Inputs -> Layer 1..N: Decision Rules -> Layer N+1: Leaf Nodes -> Layer N+2: Outcomes
+y_counters = {}
+
+for idx, (depth, condition, leaf_id, outcome) in enumerate(powercurve_nodes):
+    rule_node = f"Rule_{idx}"
+    y_pos = -y_counters.get(depth, 0)
+    y_counters[depth] = y_counters.get(depth, 0) + 1
+
+    # Position Decision Nodes based on waterfall depth (X-axis)
+    pos[rule_node] = (depth, y_pos)
+    G.add_node(
+        rule_node,
+        label=condition,
+        node_type="Decision Layer",
+        color="#00b4d8",
+    )
+
+    # Link to parent waterfall condition if applicable
+    if idx > 0 and depth > 0:
+        # Find closest predecessor at previous depth
+        for prev_idx in range(idx - 1, -1, -1):
+            if powercurve_nodes[prev_idx][0] == depth - 1:
+                G.add_edge(f"Rule_{prev_idx}", rule_node, label="fallthrough")
+                break
+
+    # Add Leaf Node layer connection if terminal branch
+    if leaf_id:
+        leaf_node = f"Leaf_{leaf_id}"
+        leaf_x = 9  # Dedicated Leaf Layer
+        if leaf_node not in pos:
+            pos[leaf_node] = (leaf_x, -len([n for n in pos if "Leaf_" in n]))
+            G.add_node(
+                leaf_node,
+                label=f"Leaf {leaf_id}",
+                node_type="Leaf Layer",
+                color="#ffb703",
+            )
+        G.add_edge(rule_node, leaf_node, label="match")
+
+        # Add Outcome Node layer connection
+        if outcome:
+            outcome_node = f"Outcome_{outcome.replace(' ', '_')}"
+            outcome_x = 10  # Dedicated Output Layer
+            if outcome_node not in pos:
+                pos[outcome_node] = (
+                    outcome_x,
+                    -len([n for n in pos if "Outcome_" in n]) * 1.5,
+                )
+                G.add_node(
+                    outcome_node,
+                    label=f"Outcome: {outcome}",
+                    node_type="Output Action",
+                    color="#fb8500",
+                )
+            G.add_edge(leaf_node, outcome_node, label="executes")
+
+# 3. Render Graph using Plotly Traces
+edge_x, edge_y = [], []
+for u, v in G.edges():
+    x0, y0 = pos[u]
+    x1, y1 = pos[v]
+    edge_x.extend([x0, x1, None])
+    edge_y.extend([y0, y1, None])
+
+edge_trace = go.Scatter(
+    x=edge_x,
+    y=edge_y,
+    line=dict(width=1.5, color="#555555"),
+    hoverinfo="none",
+    mode="lines",
+)
+
+node_x, node_y, node_colors, node_text, node_labels = [], [], [], [], []
+for node, data in G.nodes(data=True):
+    x, y = pos[node]
+    node_x.append(x)
+    node_y.append(y)
+    node_colors.append(data["color"])
+    node_labels.append(data["label"])
+    node_text.append(f"Type: {data['node_type']}<br>Detail: {data['label']}")
+
+node_trace = go.Scatter(
+    x=node_x,
+    y=node_y,
+    mode="markers+text",
+    text=[n.split(" ")[0] for n in node_labels],
+    textposition="top center",
+    hovertext=node_text,
+    hoverinfo="text",
+    marker=dict(
+        color=node_colors,
+        size=20,
+        line=dict(width=1.5, color="#ffffff"),
+    ),
+)
+
+# 4. Construct Plotly Layout
+fig = go.Figure(
+    data=[edge_trace, node_trace],
+    layout=go.Layout(
+        title=dict(
+            text="Experian PowerCurve Waterfall -> Neural Network Representation",
+            x=0.5,
+        ),
+        showlegend=False,
+        hovermode="closest",
+        margin=dict(b=40, l=40, r=40, t=60),
+        xaxis=dict(
+            title="Waterfall Decision Steps (Depth)",
+            showgrid=False,
+            zeroline=False,
+        ),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        template="plotly_dark",
+    ),
+)
+
+fig.show()

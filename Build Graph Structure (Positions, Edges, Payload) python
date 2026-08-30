@@ -1,0 +1,83 @@
+# =========================================================================
+# BUILD GRAPH STRUCTURE
+# =========================================================================
+node_by_id = {n["id"]: n for n in NODES}
+children_map = {n["id"]: [] for n in NODES}
+for n in NODES:
+    if n["parent"]:
+        children_map[n["parent"]].append(n["id"])
+
+# vertical stacking order (DFS so waterfall children stay grouped)
+order = []
+def dfs(nid):
+    order.append(nid)
+    for c in children_map.get(nid, []):
+        dfs(c)
+dfs("root")
+y_of = {nid: -i*1.0 for i, nid in enumerate(order)}
+
+# horizontal position uses depth (parent-child) + manual "indent" (waterfall offset)
+depth = {"root":0}
+q = ["root"]
+while q:
+    cur = q.pop(0)
+    for c in children_map.get(cur, []):
+        depth[c] = depth[cur] + 1
+        q.append(c)
+
+x_of = {}
+for n in NODES:
+    x_of[n["id"]] = depth[n["id"]] + node_by_id[n["id"]]["indent"]*0.4
+
+max_x = max(x_of.values())
+OUTCOME_X = max_x + 3          # rightmost fixed column for outcomes
+MINI_X    = OUTCOME_X + 1.2    # mini-outcomes just after outcomes
+
+outcome_y = {code: -i*2.2 for i, code in enumerate(OUTCOME_CODES)}
+
+# mini outcome positions (small nodes just right of their parent outcome)
+mini_nodes = []
+mini_counters = {code: 0 for code in OUTCOME_CODES}
+for link in OUTCOME_LINKS:
+    for mlabel in link["minis"]:
+        idx = mini_counters[link["outcome"]]
+        mini_id = f"MINI_{link['from']}_{idx}"
+        mini_y = outcome_y[link["outcome"]] + 0.35*(idx+1)
+        mini_nodes.append({
+            "id": mini_id, "label": mlabel, "outcome": link["outcome"],
+            "x": MINI_X, "y": mini_y, "from": link["from"]
+        })
+        mini_counters[link["outcome"]] += 1
+
+# assemble full node list (decision + outcome + mini) with positions
+all_nodes = {}
+for n in NODES:
+    all_nodes[n["id"]] = {
+        "label": n["label"], "x": x_of[n["id"]], "y": y_of[n["id"]],
+        "type": "root" if n["id"]=="root" else "decision", "parent": n["parent"]
+    }
+for code in OUTCOME_CODES:
+    oid = outcome_id(code)
+    all_nodes[oid] = {"label": code, "x": OUTCOME_X, "y": outcome_y[code], "type":"outcome", "parent": None}
+for m in mini_nodes:
+    all_nodes[m["id"]] = {"label": m["label"], "x": m["x"], "y": m["y"], "type":"mini", "parent": outcome_id(m["outcome"])}
+
+# build edge list: decision-tree edges + decision->outcome edges + outcome->mini edges
+edges = []  # (from, to, kind)  kind in {"T","F","None","to_outcome","to_mini"}
+for n in NODES:
+    if n["parent"]:
+        edges.append((n["parent"], n["id"], n["branch"] or "None"))
+for link in OUTCOME_LINKS:
+    edges.append((link["from"], outcome_id(link["outcome"]), "to_outcome"))
+for m in mini_nodes:
+    edges.append((outcome_id(m["outcome"]), m["id"], "to_mini"))
+
+# export payload for the HTML/JS renderer
+export_nodes = [{"id": nid, "label": d["label"], "x": d["x"], "y": d["y"], "type": d["type"], "parent": d["parent"]}
+                 for nid, d in all_nodes.items()]
+export_edges = [{"from": f, "to": t, "kind": k} for f, t, k in edges]
+payload = {"nodes": export_nodes, "edges": export_edges,
+           "outcome_codes": OUTCOME_CODES, "outcome_ids": [outcome_id(c) for c in OUTCOME_CODES]}
+payload_json = json.dumps(payload)
+
+print("Total nodes:", len(all_nodes), "| Total edges:", len(edges), "| Mini-outcomes:", len(mini_nodes))

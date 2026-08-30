@@ -1,0 +1,154 @@
+import networkx as nx
+import numpy as np
+import plotly.graph_objects as go
+
+# 1. Define Network Architecture
+# Adjust layer sizes to change the network structure
+layer_sizes = [4, 5, 4, 2]
+
+G = nx.DiGraph()
+pos = {}
+
+node_id = 0
+layer_nodes = []
+
+# Build nodes and compute spatial coordinates (X, Y)
+for layer_idx, num_nodes in enumerate(layer_sizes):
+    current_layer = []
+    # Center nodes vertically
+    y_offsets = np.linspace(-num_nodes / 2, num_nodes / 2, num_nodes)
+
+    for i in range(num_nodes):
+        G.add_node(
+            node_id,
+            layer=layer_idx,
+            label=f"L{layer_idx} N{i}",
+            bias=round(np.random.uniform(-1, 1), 2),
+        )
+        pos[node_id] = (layer_idx, y_offsets[i])
+        current_layer.append(node_id)
+        node_id += 1
+
+    layer_nodes.append(current_layer)
+
+# Create directed edges (connections) with random weights
+for l in range(len(layer_sizes) - 1):
+    for src in layer_nodes[l]:
+        for dst in layer_nodes[l + 1]:
+            weight = np.random.uniform(-1.0, 1.0)
+            G.add_edge(src, dst, weight=round(weight, 2))
+
+# 2. Extract Edge Visual Properties (Lines & Colors based on Weight)
+edge_x = []
+edge_y = []
+edge_colors = []
+
+# Midpoints for interactive hover labels on edges
+edge_mid_x = []
+edge_mid_y = []
+edge_text = []
+
+for u, v, data in G.edges(data=True):
+    x0, y0 = pos[u]
+    x1, y1 = pos[v]
+
+    # Draw edge line segment
+    edge_x.extend([x0, x1, None])
+    edge_y.extend([y0, y1, None])
+
+    # Store midpoint for hover text
+    edge_mid_x.append((x0 + x1) / 2)
+    edge_mid_y.append((y0 + y1) / 2)
+    w = data["weight"]
+    edge_text.append(f"Weight: {w}")
+
+# Edge lines trace
+edge_trace = go.Scatter(
+    x=edge_x,
+    y=edge_y,
+    line=dict(width=1.5, color="#888888"),
+    hoverinfo="none",
+    mode="lines",
+)
+
+# Invisible scatter trace at edge midpoints to enable hover tooltips for weights
+edge_hover_trace = go.Scatter(
+    x=edge_mid_x,
+    y=edge_mid_y,
+    mode="markers",
+    marker=dict(size=8, color="rgba(0,0,0,0)"),
+    text=edge_text,
+    hoverinfo="text",
+)
+
+# 3. Extract Node Visual Properties
+node_x = []
+node_y = []
+node_text = []
+node_color = []
+
+for node, data in G.nodes(data=True):
+    x, y = pos[node]
+    node_x.append(x)
+    node_y.append(y)
+    node_color.append(data["layer"])
+    node_text.append(
+        f"Node: {data['label']}<br>Layer: {data['layer']}<br>Bias: {data['bias']}"
+    )
+
+# Nodes trace
+node_trace = go.Scatter(
+    x=node_x,
+    y=node_y,
+    mode="markers+text",
+    hoverinfo="text",
+    text=[G.nodes[n]["label"] for n in G.nodes()],
+    textposition="bottom center",
+    hovertext=node_text,
+    marker=dict(
+        showscale=True,
+        colorscale="Viridis",
+        color=node_color,
+        size=28,
+        colorbar=dict(
+            thickness=15,
+            title="Layer Index",
+            xanchor="left",
+            titleside="right",
+        ),
+        line_width=2,
+        line=dict(color="#ffffff"),
+    ),
+)
+
+# 4. Assemble Interactive Plotly Figure
+fig = go.Figure(
+    data=[edge_trace, edge_hover_trace, node_trace],
+    layout=go.Layout(
+        title=dict(
+            text="Interactive Neural Network Architecture",
+            x=0.5,
+            font=dict(size=18),
+        ),
+        showlegend=False,
+        hovermode="closest",
+        margin=dict(b=20, l=20, r=20, t=60),
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            showticklabels=True,
+            tickvals=list(range(len(layer_sizes))),
+            ticktext=[
+                f"Input Layer" if i == 0 else f"Hidden {i}"
+                if i < len(layer_sizes) - 1
+                else "Output Layer"
+                for i in range(len(layer_sizes))
+            ],
+        ),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        template="plotly_dark",
+    ),
+)
+
+# Display graph inside notebook
+fig.show()

@@ -1,0 +1,275 @@
+html = r"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Dynamic Waterfall Neural Network</title>
+<style>
+html,body{margin:0;padding:0;background:#05060a;font-family:'Segoe UI',Arial,sans-serif;overflow:hidden;}
+canvas{display:block;cursor:grab;}
+#tooltip{position:absolute;pointer-events:none;color:#eafcff;font-size:12px;background:rgba(10,20,35,.92);
+padding:6px 10px;border-radius:6px;border:1px solid rgba(120,220,255,.4);display:none;max-width:320px;z-index:10;
+box-shadow:0 0 12px rgba(80,200,255,.4);}
+#bottomPanel{position:absolute;bottom:0;left:0;right:0;display:flex;flex-direction:column;
+background:rgba(8,12,20,.9);border-top:1px solid rgba(120,200,255,.25);backdrop-filter:blur(6px);z-index:5;}
+#infoRow{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;
+padding:8px 14px;border-bottom:1px solid rgba(120,200,255,.15);}
+#hud{color:#9fdcff;font-size:12px;max-width:420px;} #hud b{color:#fff;}
+#legend{color:#cfe;font-size:11px;white-space:nowrap;}
+#controlsRow{display:flex;align-items:center;gap:10px;color:#cfe;font-size:12px;flex-wrap:wrap;}
+#controlsRow input[type=range]{vertical-align:middle;}
+#controlsRow button{background:#123047;color:#bff;border:1px solid #3aa;border-radius:6px;padding:4px 10px;
+cursor:pointer;font-size:12px;}
+#controlsRow button:hover{background:#1d4a6d;}
+#search{width:220px;padding:5px 8px;border-radius:6px;border:1px solid #3aa;background:#0b1a26;color:#bff;font-size:12px;}
+#filterBar{padding:8px 14px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-height:100px;overflow-y:auto;}
+#filterBar b{color:#fff;font-size:12px;margin-right:6px;white-space:nowrap;}
+.filterChip{display:flex;align-items:center;gap:4px;background:rgba(255,190,60,.12);
+border:1px solid rgba(255,190,60,.4);border-radius:14px;padding:3px 10px;font-size:11px;color:#ffe6ad;cursor:pointer;user-select:none;}
+.filterChip.off{opacity:.3;background:rgba(120,120,120,.1);border-color:rgba(150,150,150,.3);color:#999;}
+#filterBtns{margin-left:auto;}
+#filterBtns button{background:#123047;color:#bff;border:1px solid #3aa;border-radius:6px;padding:3px 9px;
+margin-left:6px;cursor:pointer;font-size:11px;}
+</style></head>
+<body>
+<div id="tooltip"></div>
+<canvas id="c"></canvas>
+<div id="bottomPanel">
+  <div id="infoRow">
+    <div id="hud">Strategy Tree &mdash; <b>Dynamic Waterfall Neural Network</b><br>
+    Glowing pulses flow root&rarr;outcome. Hover/click any node to isolate its full path.</div>
+    <div id="legend">Green=True &nbsp;|&nbsp; Red=False &nbsp;|&nbsp; Gold=Outcome &nbsp;|&nbsp; Cyan-small=Mini-outcome &nbsp;|&nbsp; Dim=inactive</div>
+    <div id="controlsRow">
+      <label>Emission rate <input id="rate" type="range" min="1" max="10" value="4"></label>
+      <button id="pause">Pause</button>
+      <button id="reset">Reset View</button>
+      <input id="search" placeholder="Search node / outcome...">
+    </div>
+  </div>
+  <div id="filterBar">
+    <b>Outcome Filter:</b>
+    <div id="chipContainer" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+    <div id="filterBtns"><button id="selAll">All</button><button id="selNone">None</button></div>
+  </div>
+</div>
+<script>
+const DATA = """ + payload_json + r""";
+const canvas=document.getElementById('c'), ctx=canvas.getContext('2d');
+let W,H;
+function resize(){ W=canvas.width=innerWidth; H=canvas.height=innerHeight; }
+window.onresize=resize; resize();
+
+let nodes={}; DATA.nodes.forEach(n=>nodes[n.id]=n);
+let edges=DATA.edges;
+let childrenOf={}; Object.keys(nodes).forEach(k=>childrenOf[k]=[]);
+edges.forEach(e=>childrenOf[e.from].push(e.to));
+
+function ancestors(id){const a=[];let cur=nodes[id];while(cur&&cur.parent){a.push(cur.parent);cur=nodes[cur.parent];}return a;}
+function descendants(id){const a=[];const st=[...childrenOf[id]];while(st.length){const c=st.pop();a.push(c);st.push(...childrenOf[c]);}return a;}
+Object.keys(nodes).forEach(id=>{nodes[id].anc=ancestors(id);nodes[id].desc=descendants(id);});
+function pathSetOf(id){return new Set([id,...nodes[id].anc,...nodes[id].desc]);}
+
+const SCALE_X=170, SCALE_Y=30;
+Object.values(nodes).forEach(n=>{n.baseX=n.x*SCALE_X+80; n.baseY=(-n.y)*SCALE_Y+60;});
+
+let camX=0,camY=0,camScale=1;
+function w2s(x,y){return {x:(x+camX)*camScale,y:(y+camY)*camScale};}
+function fitView(){
+  const xs=Object.values(nodes).map(n=>n.baseX), ys=Object.values(nodes).map(n=>n.baseY);
+  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  const panelH = document.getElementById('bottomPanel').offsetHeight;
+  const usableH = H - panelH;
+  camScale=Math.min(W/(maxX-minX+200),usableH/(maxY-minY+140),1);
+  camX=-minX+60; camY=-minY+40;
+}
+setTimeout(fitView, 50);
+
+let dragging=false,dragMoved=false,ds={x:0,y:0},cs={x:0,y:0};
+canvas.onmousedown=e=>{dragging=true;dragMoved=false;ds={x:e.clientX,y:e.clientY};cs={x:camX,y:camY};canvas.style.cursor='grabbing';};
+window.onmouseup=()=>{dragging=false;canvas.style.cursor='grab';};
+window.onmousemove=e=>{if(dragging){if(Math.hypot(e.clientX-ds.x,e.clientY-ds.y)>3)dragMoved=true;camX=cs.x+(e.clientX-ds.x)/camScale;camY=cs.y+(e.clientY-ds.y)/camScale;}};
+canvas.addEventListener('wheel',e=>{e.preventDefault();const f=e.deltaY<0?1.08:0.92;const mx=e.clientX/camScale-camX,my=e.clientY/camScale-camY;camScale*=f;camX=e.clientX/camScale-mx;camY=e.clientY/camScale-my;},{passive:false});
+
+let hoveredId=null, lockedId=null, searchHL=null;
+let activeOutcomes=new Set(DATA.outcome_ids);
+function outcomeAllowed(id){
+  const n=nodes[id];
+  if(n.type==='outcome') return activeOutcomes.has(id);
+  if(n.type==='mini') return activeOutcomes.has(n.parent);
+  return true;
+}
+function activeId(){return lockedId||hoveredId;}
+
+function buildChips(){
+  const c=document.getElementById('chipContainer'); c.innerHTML='';
+  DATA.outcome_ids.forEach((oid,i)=>{
+    const chip=document.createElement('div');
+    chip.className='filterChip'+(activeOutcomes.has(oid)?'':' off');
+    chip.textContent=DATA.outcome_codes[i];
+    chip.onclick=()=>{ if(activeOutcomes.has(oid)) activeOutcomes.delete(oid); else activeOutcomes.add(oid); buildChips(); };
+    c.appendChild(chip);
+  });
+}
+buildChips();
+document.getElementById('selAll').onclick=()=>{activeOutcomes=new Set(DATA.outcome_ids);buildChips();};
+document.getElementById('selNone').onclick=()=>{activeOutcomes=new Set();buildChips();};
+
+let particles=[]; let paused=false;
+const rateSlider=document.getElementById('rate'); let spawnAccum=0;
+function pickPath(){
+  let cur=nodes['root']; let path=[cur];
+  while(childrenOf[cur.id] && childrenOf[cur.id].length>0){
+    const validChildren = childrenOf[cur.id].filter(c=>outcomeAllowed(c));
+    if(validChildren.length===0) break;
+    const nid=validChildren[Math.floor(Math.random()*validChildren.length)];
+    cur=nodes[nid]; path.push(cur);
+  }
+  return path;
+}
+function spawnParticle(){
+  const path=pickPath();
+  if(path.length<2) return;
+  const leaf=path[path.length-1];
+  particles.push({path,seg:0,t:0,speed:0.012+Math.random()*0.012,isOutput:leaf.type==='outcome'||leaf.type==='mini'});
+}
+function updateParticles(dt){
+  spawnAccum+=dt*parseInt(rateSlider.value);
+  while(spawnAccum>55){spawnParticle();spawnAccum-=55;}
+  particles.forEach(p=>{
+    p.t+=p.speed;
+    if(p.t>=1){p.t=0;p.seg++; if(p.seg>=p.path.length-1){p.path[p.path.length-1].pulse=1;p.dead=true;} }
+  });
+  particles=particles.filter(p=>!p.dead);
+  Object.values(nodes).forEach(n=>{if(n.pulse>0)n.pulse-=0.02;});
+}
+
+function bezierPoint(p0,p1,t){
+  const midx=(p0.x+p1.x)/2;
+  function lerp(a,b,t){return {x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t};}
+  const p1_={x:p0.x,y:p0.y},p2_={x:midx,y:p0.y},p3_={x:midx,y:p1.y},p4_={x:p1.x,y:p1.y};
+  const a=lerp(p1_,p2_,t),b=lerp(p2_,p3_,t),c=lerp(p3_,p4_,t);
+  const d=lerp(a,b,t),e=lerp(b,c,t);
+  return lerp(d,e,t);
+}
+
+function drawEdges(){
+  const aid=activeId(); const ps=aid?pathSetOf(aid):null;
+  edges.forEach(e=>{
+    if(!outcomeAllowed(e.from)||!outcomeAllowed(e.to)) return;
+    const A=nodes[e.from],B=nodes[e.to];
+    const a=w2s(A.baseX,A.baseY), b=w2s(B.baseX,B.baseY);
+    const inPath=ps?(ps.has(e.from)&&ps.has(e.to)):true;
+    ctx.beginPath(); ctx.moveTo(a.x,a.y);
+    const midx=(a.x+b.x)/2; ctx.bezierCurveTo(midx,a.y,midx,b.y,b.x,b.y);
+    let col;
+    if(ps && !inPath) col='rgba(80,90,100,0.06)';
+    else if(e.kind==='T') col= ps? 'rgba(70,255,160,.9)':'rgba(70,220,140,.35)';
+    else if(e.kind==='F') col= ps? 'rgba(255,90,100,.9)':'rgba(230,80,90,.3)';
+    else if(e.kind==='to_outcome') col= ps? 'rgba(255,210,90,.9)':'rgba(255,190,60,.3)';
+    else if(e.kind==='to_mini') col= ps? 'rgba(120,220,255,.9)':'rgba(100,180,220,.25)';
+    else col= ps? 'rgba(200,210,220,.7)':'rgba(120,140,160,.25)';
+    ctx.strokeStyle=col;
+    ctx.lineWidth=(ps&&inPath?2.4:1.1)*camScale;
+    if(ps&&inPath){ctx.shadowColor=col;ctx.shadowBlur=8;} else ctx.shadowBlur=0;
+    ctx.stroke(); ctx.shadowBlur=0;
+  });
+}
+
+function drawParticles(){
+  const aid=activeId(); const ps=aid?pathSetOf(aid):null;
+  particles.forEach(p=>{
+    const na=p.path[p.seg], nb=p.path[p.seg+1];
+    if(!na||!nb) return;
+    if(!outcomeAllowed(na.id)||!outcomeAllowed(nb.id)) return;
+    const inPath=ps?(ps.has(na.id)&&ps.has(nb.id)):true;
+    if(ps && !inPath) return;
+    const a=w2s(na.baseX,na.baseY), b=w2s(nb.baseX,nb.baseY);
+    const pt=bezierPoint(a,b,p.t);
+    const hue=p.isOutput?45:190;
+    const rad=(ps?12:9)*Math.max(camScale,.4);
+    const grad=ctx.createRadialGradient(pt.x,pt.y,0,pt.x,pt.y,rad);
+    grad.addColorStop(0,`hsla(${hue},100%,80%,1)`);
+    grad.addColorStop(.4,`hsla(${hue},100%,65%,.7)`);
+    grad.addColorStop(1,`hsla(${hue},100%,50%,0)`);
+    ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(pt.x,pt.y,rad,0,7); ctx.fill();
+    ctx.beginPath(); ctx.fillStyle=`hsla(${hue},100%,92%,1)`;
+    ctx.arc(pt.x,pt.y,2.2*Math.max(camScale,.4),0,7); ctx.fill();
+  });
+}
+
+function drawNodes(){
+  const aid=activeId(); const ps=aid?pathSetOf(aid):null;
+  Object.values(nodes).forEach(n=>{
+    if(!outcomeAllowed(n.id)) return;
+    const s=w2s(n.baseX,n.baseY);
+    if(s.x<-60||s.x>W+60||s.y<-40||s.y>H+40) return;
+    const glow=n.pulse>0?n.pulse:0;
+    const inPath=ps?ps.has(n.id):true;
+    const isH=hoveredId===n.id, isL=lockedId===n.id, isS=searchHL===n.id;
+    let baseR = n.type==='mini'?4 : n.type==='outcome'?7 : n.id==='root'?10:7;
+    const r=(baseR+glow*8+(isH||isL?4:0)+(isS?4:0))*Math.max(camScale,.35);
+    let hue = n.type==='mini'?185 : n.type==='outcome'?42 : n.id==='root'?260:200;
+    if(isS) hue=320;
+    const alpha = ps && !inPath ? 0.10:1;
+    ctx.globalAlpha=alpha;
+    const grad=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,r+12*camScale);
+    grad.addColorStop(0,`hsla(${hue},90%,${60+glow*30}%,.9)`); grad.addColorStop(1,`hsla(${hue},90%,50%,0)`);
+    ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(s.x,s.y,r+12*camScale,0,7); ctx.fill();
+    ctx.beginPath(); ctx.fillStyle=`hsl(${hue},80%,${55+glow*25}%)`; ctx.arc(s.x,s.y,r,0,7); ctx.fill();
+    ctx.strokeStyle=(isH||isL)?'rgba(255,255,255,.95)':'rgba(255,255,255,.5)';
+    ctx.lineWidth=(isH||isL)?2:1; ctx.stroke();
+    if((camScale>0.5 && (n.type==='outcome'||n.id==='root')) || (ps&&inPath&&camScale>0.35)){
+      ctx.fillStyle='#dff'; ctx.font=`${(n.type==='mini'?9:10)*Math.min(camScale,1.3)}px Segoe UI`;
+      ctx.textAlign='left';
+      const lbl=n.label.length>34?n.label.slice(0,34)+'…':n.label;
+      ctx.fillText(lbl, s.x+r+6, s.y+3);
+    }
+    ctx.globalAlpha=1;
+  });
+}
+
+let last=performance.now();
+function loop(now){
+  const dt=now-last; last=now;
+  ctx.fillStyle='rgba(5,6,10,0.32)'; ctx.fillRect(0,0,W,H);
+  if(!paused) updateParticles(dt);
+  drawEdges(); drawParticles(); drawNodes();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+document.getElementById('pause').onclick=e=>{paused=!paused;e.target.textContent=paused?'Resume':'Pause';};
+document.getElementById('reset').onclick=()=>{fitView();};
+
+function findNodeAt(cx,cy){
+  let hit=null,hd=Infinity;
+  Object.values(nodes).forEach(n=>{
+    if(!outcomeAllowed(n.id)) return;
+    const s=w2s(n.baseX,n.baseY); const d=Math.hypot(s.x-cx,s.y-cy);
+    const r=(n.type==='mini'?4:8)*Math.max(camScale,.35)+8;
+    if(d<r&&d<hd){hit=n;hd=d;}
+  });
+  return hit;
+}
+canvas.onmousemove=e=>{
+  if(dragging){document.getElementById('tooltip').style.display='none';hoveredId=null;return;}
+  const hit=findNodeAt(e.clientX,e.clientY);
+  const tip=document.getElementById('tooltip');
+  if(hit){hoveredId=hit.id;tip.style.display='block';tip.style.left=(e.clientX+16)+'px';tip.style.top=(e.clientY+8)+'px';tip.textContent=hit.label;}
+  else{hoveredId=null;tip.style.display='none';}
+};
+canvas.onclick=e=>{
+  if(dragMoved) return;
+  const hit=findNodeAt(e.clientX,e.clientY);
+  lockedId = hit ? (lockedId===hit.id?null:hit.id) : null;
+};
+document.getElementById('search').addEventListener('input',e=>{
+  const q=e.target.value.trim().toLowerCase();
+  if(!q){searchHL=null;return;}
+  const found=Object.values(nodes).find(n=>n.label.toLowerCase().includes(q));
+  if(found){ searchHL=found.id; lockedId=found.id; camX=W/2/camScale-found.baseX; camY=H/2/camScale-found.baseY; }
+});
+</script>
+</body></html>
+"""
+
+os.makedirs('output', exist_ok=True)
+with open('output/dynamic_waterfall_neural_network_v2.html','w') as f:
+    f.write(html)
+print("Saved:", len(html), "chars ->", "output/dynamic_waterfall_neural_network_v2.html")
